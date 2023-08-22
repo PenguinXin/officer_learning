@@ -118,3 +118,54 @@ iris |>
   pull(chart)
 ```
 
+# web scrape
+https://github.com/andrew-couch/UFC_Data/blob/main/Scraper.R
+
+```{r}
+library(tidyselect)
+library(rvest)
+
+"http://ufcstats.com/statistics/events/completed?page=all" |> 
+  read_html() |> 
+  html_elements(".b-link_style_black") |> 
+  html_attr("href") |> 
+  tibble()
+```
+
+# Use progress package to track progress
+```{r}
+library(progress)
+
+sim <- tibble(x = seq.int(1, 1000))
+
+pb <- progress_bar$new(total = nrow(sim))
+
+generic_function <- function(x){
+  pb$tick()
+  Sys.sleep(1/100)
+  x^2
+}
+
+sim |> 
+  mutate(x = map_dbl(x, generic_function))
+
+```
+
+```{r}
+library(furrr)
+plan(multisession, workers = 4)
+sim <- tibble(x = seq.int(1, 1000))
+
+parallel_function <- function(sim){
+  sqrt(sim)
+}
+
+begin <- Sys.time()
+sim |> 
+  mutate(sim = future_map(sim, parallel_function))
+
+end <- begin - Sys.time()
+
+end
+```
+
