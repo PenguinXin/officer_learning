@@ -22,3 +22,99 @@ library(tidyverse)
 library(flextable)
 library(officer)
 ```
+
+# Overview of purrr
+```{r}
+library(tidyverse)
+```
+
+map is just for loop
+When to use purrr?
+
+```{r}
+iris |> 
+  mutate(sqrt_sepal_length = sqrt(Sepal.Length),
+         map_sqrt = map_dbl(Sepal.Length, sqrt),
+         map_log = map_dbl(Sepal.Length, log, base = 3),
+         base = 3,
+         map_log_base = map2_dbl(Sepal.Length, base, log))
+```
+
+
+```{r}
+library(broom)
+iris |> 
+  nest(data = -Species) |> 
+  mutate(model = map(data, ~ lm(Sepal.Length ~ Sepal.Width + Petal.Length + Petal.Width, data = .x)),
+         tidy_model = map(model, tidy)) |> 
+  unnest(cols = c(Species, tidy_model)) |> 
+  ggplot(aes(x = term, y = estimate, color = Species)) +
+  geom_point()
+```
+
+# train a random forest model for each species
+```{r}
+library(tidymodels)
+install.packages("randomForest")
+library(randomForest)
+# train a random forest model for each species
+set.seed(54)
+model_data <- iris |> 
+  nest(data = -Species) |> 
+  mutate(data_splits = map(data, initial_split, prop = 0.8),
+         train_data = map(data_splits, training),
+         test_data = map(data_splits, testing)) 
+
+# create model we want to tune
+rf_model <- rand_forest(trees = tune()) |> 
+  set_mode("regression") |> 
+  set_engine("randomForest")
+
+rf_grid <- grid_regular(parameters(rf_model))
+
+model_data <- model_data |> 
+  mutate(recipe = map(train_data, .f = function(x){
+    recipe(Sepal.Length ~ ., data = x)
+  }),
+  k_fold_data = map(train_data, vfold_cv))
+
+train_models <- function(recipe, k_fold_data){
+  tune_grid(
+    rf_model,recipe,
+    grid = rf_grid,
+    resamples = k_fold_data
+  )
+}
+
+
+model_data <- model_data |> 
+  mutate(tune_results = map2(recipe, k_fold_data, train_models))
+
+model_data <- model_data |> 
+  mutate(parameters = map(tune_results, ~show_best(.x, "rmse", n = 1)),
+         final_model = map2(parameters, recipe, .f = function(x, y){
+           workflow() |> 
+             add_model(rf_model) |> 
+             add_recipe(y) |> 
+             finalize_workflow(x)
+         }),
+         eval = map2(final_model, data_splits, last_fit))
+
+model_data |> 
+  select(Species, eval) |> 
+  mutate(metrics = map(eval, collect_metrics)) |> 
+  select(Species, metrics) |> 
+  unnest()
+```
+
+# create charts
+```{r}
+iris |> 
+  nest(data = -Species) |> 
+  mutate(chart = map(data, .f = function(x){
+    ggplot(data = x, aes(x = Sepal.Length, y = Sepal.Width)) +
+      geom_point()
+  })) |> 
+  pull(chart)
+```
+
